@@ -1,0 +1,100 @@
+#include <Servo.h>
+
+const int stepPin   = 12;  
+const int dirPin    = 11;  
+const int enablePin = 10;  
+
+const int trigPin   = 7;  
+const int echoPin   = 6;  
+
+const int servoPin  = 4; 
+
+Servo myServo;
+
+// 100 шагов = 180° (при 200 шагах на полный оборот)
+const int STEPS = 100;
+
+// Параметры скорости (микросекунды на полушаг)
+const unsigned int STEP_SLOW = 3000;   // старт/финиш — медленно (безопасно)
+const unsigned int STEP_FAST = 1800;   // крейсерская скорость
+const int RAMP_STEPS         = 25;     // шагов на разгон и на торможение
+
+// ============ Вспомогательные функции ============
+
+// Один шаг с заданной задержкой
+void stepWithDelay(unsigned int d) {
+  digitalWrite(stepPin, HIGH);
+  delayMicroseconds(d);
+  digitalWrite(stepPin, LOW);
+  delayMicroseconds(d);
+}
+
+// Вычисление задержки для шага i из N с учётом разгона/торможения
+unsigned int stepDelay(int i, int total) {
+  if (i < RAMP_STEPS) {
+    // разгон: от SLOW к FAST
+    return STEP_SLOW - (STEP_SLOW - STEP_FAST) * i / RAMP_STEPS;
+  }
+  if (i > total - RAMP_STEPS) {
+    // торможение: от FAST к SLOW
+    return STEP_FAST + (STEP_SLOW - STEP_FAST) * (i - (total - RAMP_STEPS)) / RAMP_STEPS;
+  }
+  return STEP_FAST;
+}
+
+// ============ setup ============
+void setup() {
+  pinMode(stepPin, OUTPUT);
+  pinMode(dirPin, OUTPUT);
+  pinMode(enablePin, OUTPUT);
+  digitalWrite(enablePin, LOW);
+
+  Serial.begin(9600);
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+
+  myServo.attach(servoPin);
+  myServo.write(0);          // серво зафиксирован в 0°
+  delay(500);
+}
+
+// ============ loop ============
+void loop() {
+
+  // ============ ПРОХОД ВПЕРЁД: 180° + замеры ============
+  digitalWrite(dirPin, HIGH);
+  for (int x = 0; x < STEPS; x++) {
+
+    // 1. Один шаг с учётом разгона/торможения
+    stepWithDelay(stepDelay(x, STEPS));
+
+    // 2. Замер дальномером
+    digitalWrite(trigPin, LOW);
+    delayMicroseconds(2);
+    digitalWrite(trigPin, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trigPin, LOW);
+
+    long duration = pulseIn(echoPin, HIGH, 30000);
+    long distance = duration * 0.0343 / 2;
+    if (distance == 0) distance = 250;   // слишком далеко
+
+    // 3. Вывод в монитор порта
+    Serial.print("Шаг: ");
+    Serial.print(x);
+    Serial.print(" | Расстояние: ");
+    Serial.print(distance);
+    Serial.println(" см");
+  }
+
+  delay(500);   // пауза в конце линии
+
+  // ============ ВОЗВРАТ НАЗАД: 180° (без замеров) ============
+  // Такая же схема разгона/торможения — мотор не теряет шаги
+  digitalWrite(dirPin, LOW);
+  for (int x = 0; x < STEPS; x++) {
+    stepWithDelay(stepDelay(x, STEPS));
+  }
+
+  delay(500);   // пауза перед следующим проходом
+}
